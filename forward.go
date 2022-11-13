@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-const bufferSize = 4096
-
 type connection struct {
 	available  chan struct{}
 	udp        *net.UDPConn
@@ -19,7 +17,7 @@ type connection struct {
 // Forwarder represents a UDP packet forwarder.
 type Forwarder struct {
 	src          *net.UDPAddr
-	dst          *net.UDPAddr
+	router       Router
 	client       *net.UDPAddr
 	listenerConn *net.UDPConn
 
@@ -32,6 +30,77 @@ type Forwarder struct {
 	timeout time.Duration
 
 	closed bool
+
+    bufferSize int
+}
+
+type Router interface {
+    Route(*net.UDPAddr) *net.UDPAddr
+}
+
+type staticRouter struct {
+    *net.UDPAddr
+}
+
+func (r staticRouter) Route(*net.UDPAddr) *net.UDPAddr {
+    return r.UDPAddr
+}
+
+// config represents the configuration of Forwarder.
+type config struct {
+    listenerFactory func() (*net.UDPConn, error)
+    router Router
+    timeout time.Duration
+    bufferSize int
+}
+
+type Option func (*config) error
+
+func WithAddr(src string) Option {
+    return func (c *config) error {
+        srcAddr, err := net.ResolveUDPAddr("udp", src)
+        if err != nil {
+            return err
+        }
+        c.listenerFactory = func () (*net.UDPConn, error) {
+            return net.ListenUDP("udp", srcAddr)
+        }
+        return nil
+    }
+}
+
+func WithConn(conn *net.UDPConn) Option {
+    return func (c *config) error {
+        c.listenerFactory = func() (*net.UDPConn, error) {
+            return conn, nil
+        }
+        return nil
+    }
+}
+
+func WithDestination(dest string) Option {
+    return func (c *config) error {
+        destAddr, err := net.ResolveUDPAddr("udp", dest)
+        if err != nil {
+            return err
+        }
+        c.router = staticRouter{UDPAddr: destAddr}
+        return nil
+    }
+}
+
+func WithTimeout(timeout time.Duration) Option {
+    return func (c *config) error {
+        c.timeout = timeout
+        return nil
+    }
+}
+
+func WithBufferSize(size int) Option {
+    return func (c *config) error {
+        c.bufferSize = size
+        return nil
+    }
 }
 
 // DefaultTimeout is the default timeout period of inactivity for convenience
@@ -42,29 +111,35 @@ const DefaultTimeout = time.Minute * 5
 // timeout to "disconnect" clients after the timeout period of inactivity. It
 // implements a reverse NAT and thus supports multiple seperate users. Forward
 // is also asynchronous.
-func Forward(src, dst string, timeout time.Duration) (*Forwarder, error) {
+func Forward(options... Option) (*Forwarder, error) {
+    config := &config{
+        timeout: DefaultTimeout,
+        bufferSize: 4096,
+    }
+
+    options = append([]Option{WithAddr(":")}, options...)
+
+    for _, opt := range options {
+        if err := opt(config); err != nil {
+            return nil, err
+        }
+    }
+
 	forwarder := new(Forwarder)
 	forwarder.connectCallback = func(addr string) {}
 	forwarder.disconnectCallback = func(addr string) {}
 	forwarder.connectionsMutex = new(sync.RWMutex)
 	forwarder.connections = make(map[string]*connection)
-	forwarder.timeout = timeout
+	forwarder.timeout = config.timeout
+    forwarder.router = config.router
+    forwarder.bufferSize = config.bufferSize
 
-	var err error
-	forwarder.src, err = net.ResolveUDPAddr("udp", src)
+    var err error
+	forwarder.listenerConn, err = config.listenerFactory()
 	if err != nil {
 		return nil, err
 	}
-
-	forwarder.dst, err = net.ResolveUDPAddr("udp", dst)
-	if err != nil {
-		return nil, err
-	}
-
-	forwarder.listenerConn, err = net.ListenUDP("udp", forwarder.src)
-	if err != nil {
-		return nil, err
-	}
+    forwarder.src, _ = forwarder.listenerConn.LocalAddr().(*net.UDPAddr)
 
 	go forwarder.janitor()
 	go forwarder.run()
@@ -74,8 +149,8 @@ func Forward(src, dst string, timeout time.Duration) (*Forwarder, error) {
 
 func (f *Forwarder) run() {
 	for {
-		buf := make([]byte, bufferSize)
-		oob := make([]byte, bufferSize)
+		buf := make([]byte, f.bufferSize)
+		oob := make([]byte, f.bufferSize)
 		n, _, _, addr, err := f.listenerConn.ReadMsgUDP(buf, oob)
 		if err != nil {
 			log.Println("forward: failed to read, terminating:", err)
@@ -126,12 +201,16 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 	if !found {
 		var udpConn *net.UDPConn
 		var err error
-		if f.dst.IP.To4()[0] == 127 {
+        dst := f.router.Route(addr)
+        if dst == nil {
+            return
+        }
+		if dst.IP.To4()[0] == 127 {
 			// log.Println("using local listener")
 			laddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:")
-			udpConn, err = net.DialUDP("udp", laddr, f.dst)
+			udpConn, err = net.DialUDP("udp", laddr, dst)
 		} else {
-			udpConn, err = net.DialUDP("udp", nil, f.dst)
+			udpConn, err = net.DialUDP("udp", nil, dst)
 		}
 		if err != nil {
 			log.Println("udp-forward: failed to dial:", err)
@@ -154,8 +233,8 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 
 		for {
 			// log.Println("in loop to read from NAT connection to servers")
-			buf := make([]byte, bufferSize)
-			oob := make([]byte, bufferSize)
+			buf := make([]byte, f.bufferSize)
+			oob := make([]byte, f.bufferSize)
 			n, _, _, _, err := udpConn.ReadMsgUDP(buf, oob)
 			if err != nil {
 				f.connectionsMutex.Lock()
@@ -239,4 +318,9 @@ func (f *Forwarder) Connected() []string {
 		results = append(results, key)
 	}
 	return results
+}
+
+func (f *Forwarder) LocalAddr() *net.UDPAddr {
+    addr, _ := f.listenerConn.LocalAddr().(*net.UDPAddr)
+    return addr
 }
