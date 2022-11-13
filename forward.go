@@ -46,6 +46,12 @@ func (r staticRouter) Route(*net.UDPAddr) *net.UDPAddr {
     return r.UDPAddr
 }
 
+type funcRouter func (*net.UDPAddr) *net.UDPAddr
+
+func (r funcRouter) Route(incoming *net.UDPAddr) *net.UDPAddr {
+    return r(incoming)
+}
+
 // config represents the configuration of Forwarder.
 type config struct {
     listenerFactory func() (*net.UDPConn, error)
@@ -87,6 +93,17 @@ func WithDestination(dest string) Option {
         c.router = staticRouter{UDPAddr: destAddr}
         return nil
     }
+}
+
+func WithRouter(router Router) Option {
+    return func (c *config) error {
+        c.router = router
+        return nil
+    }
+}
+
+func WithRouterFunc(router func (*net.UDPAddr) *net.UDPAddr) Option {
+    return WithRouter(funcRouter(router))
 }
 
 func WithTimeout(timeout time.Duration) Option {
