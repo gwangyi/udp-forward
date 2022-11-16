@@ -220,6 +220,9 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 		var err error
         dst := f.router.Route(addr)
         if dst == nil {
+            f.connectionsMutex.Lock()
+            delete(f.connections, addr.String())
+            f.connectionsMutex.Unlock()
             return
         }
 		if dst.IP.To4()[0] == 127 {
