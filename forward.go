@@ -34,6 +34,7 @@ type Forwarder struct {
 	bufferSize int
 }
 
+// Router represents a router that gives the destination address.
 type Router interface {
 	Route(*net.UDPAddr) *net.UDPAddr
 }
@@ -60,8 +61,10 @@ type config struct {
 	bufferSize      int
 }
 
+// Option gives the way to customize the forwarder.
 type Option func(*config) error
 
+// WithAddr lets the new forwarder listen from given address.
 func WithAddr(src string) Option {
 	return func(c *config) error {
 		srcAddr, err := net.ResolveUDPAddr("udp", src)
@@ -75,6 +78,7 @@ func WithAddr(src string) Option {
 	}
 }
 
+// WithConn lets the new forwarder to use given conn instead of new one.
 func WithConn(conn *net.UDPConn) Option {
 	return func(c *config) error {
 		c.listenerFactory = func() (*net.UDPConn, error) {
@@ -84,6 +88,7 @@ func WithConn(conn *net.UDPConn) Option {
 	}
 }
 
+// WithDestination lets the new forwarder forward packets to the given address.
 func WithDestination(dest string) Option {
 	return func(c *config) error {
 		destAddr, err := net.ResolveUDPAddr("udp", dest)
@@ -95,6 +100,7 @@ func WithDestination(dest string) Option {
 	}
 }
 
+// WithRouter lets the new forwarder forward packets according to the given router.
 func WithRouter(router Router) Option {
 	return func(c *config) error {
 		c.router = router
@@ -102,10 +108,14 @@ func WithRouter(router Router) Option {
 	}
 }
 
+// WithRouterFunc does the same as WithRouter, but with a function.
 func WithRouterFunc(router func(*net.UDPAddr) *net.UDPAddr) Option {
 	return WithRouter(funcRouter(router))
 }
 
+// WithTimeout sets the timeout.
+// No interaction more than the timeout will remove the connection from the NAT
+// table.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *config) error {
 		c.timeout = timeout
@@ -113,6 +123,8 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithBufferSize sets the buffer size that is used by forwarding.
+// Larger packet can be discarded.
 func WithBufferSize(size int) Option {
 	return func(c *config) error {
 		c.bufferSize = size
@@ -340,6 +352,7 @@ func (f *Forwarder) Connected() []string {
 	return results
 }
 
+// LocalAddr returns LocalAddr of listening connection.
 func (f *Forwarder) LocalAddr() *net.UDPAddr {
 	addr, _ := f.listenerConn.LocalAddr().(*net.UDPAddr)
 	return addr
