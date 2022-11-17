@@ -2,7 +2,6 @@
 package forward
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -16,7 +15,7 @@ type connection struct {
 }
 
 type Logger interface {
-    Println(v... any)
+	Println(v ...any)
 }
 
 // Forwarder represents a UDP packet forwarder.
@@ -38,7 +37,7 @@ type Forwarder struct {
 
 	bufferSize int
 
-    logger Logger
+	logger Logger
 }
 
 // Router represents a router that gives the destination address.
@@ -66,7 +65,7 @@ type config struct {
 	router          Router
 	timeout         time.Duration
 	bufferSize      int
-    logger Logger
+	logger          Logger
 }
 
 // Option gives the way to customize the forwarder.
@@ -142,19 +141,19 @@ func WithBufferSize(size int) Option {
 
 // WithLogger sets a logger.
 func WithLogger(logger Logger) Option {
-    return func(c *config) error {
-        c.logger = logger
-        return nil
-    }
+	return func(c *config) error {
+		c.logger = logger
+		return nil
+	}
 }
 
-type emptyLogger struct {}
+type emptyLogger struct{}
 
-func (emptyLogger) Println(v... any) {}
+func (emptyLogger) Println(v ...any) {}
 
 // WithoutLogger lets forwarder not log anything.
 func WithoutLogger() Option {
-    return WithLogger(emptyLogger{})
+	return WithLogger(emptyLogger{})
 }
 
 // DefaultTimeout is the default timeout period of inactivity for convenience
@@ -169,7 +168,7 @@ func Forward(options ...Option) (*Forwarder, error) {
 	config := &config{
 		timeout:    DefaultTimeout,
 		bufferSize: 4096,
-        logger: log.Default(),
+		logger:     log.Default(),
 	}
 
 	options = append([]Option{WithAddr(":")}, options...)
@@ -188,7 +187,7 @@ func Forward(options ...Option) (*Forwarder, error) {
 	forwarder.timeout = config.timeout
 	forwarder.router = config.router
 	forwarder.bufferSize = config.bufferSize
-    forwarder.logger = config.logger
+	forwarder.logger = config.logger
 
 	var err error
 	forwarder.listenerConn, err = config.listenerFactory()
