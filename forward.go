@@ -31,93 +31,93 @@ type Forwarder struct {
 
 	closed bool
 
-    bufferSize int
+	bufferSize int
 }
 
 type Router interface {
-    Route(*net.UDPAddr) *net.UDPAddr
+	Route(*net.UDPAddr) *net.UDPAddr
 }
 
 type staticRouter struct {
-    *net.UDPAddr
+	*net.UDPAddr
 }
 
 func (r staticRouter) Route(*net.UDPAddr) *net.UDPAddr {
-    return r.UDPAddr
+	return r.UDPAddr
 }
 
-type funcRouter func (*net.UDPAddr) *net.UDPAddr
+type funcRouter func(*net.UDPAddr) *net.UDPAddr
 
 func (r funcRouter) Route(incoming *net.UDPAddr) *net.UDPAddr {
-    return r(incoming)
+	return r(incoming)
 }
 
 // config represents the configuration of Forwarder.
 type config struct {
-    listenerFactory func() (*net.UDPConn, error)
-    router Router
-    timeout time.Duration
-    bufferSize int
+	listenerFactory func() (*net.UDPConn, error)
+	router          Router
+	timeout         time.Duration
+	bufferSize      int
 }
 
-type Option func (*config) error
+type Option func(*config) error
 
 func WithAddr(src string) Option {
-    return func (c *config) error {
-        srcAddr, err := net.ResolveUDPAddr("udp", src)
-        if err != nil {
-            return err
-        }
-        c.listenerFactory = func () (*net.UDPConn, error) {
-            return net.ListenUDP("udp", srcAddr)
-        }
-        return nil
-    }
+	return func(c *config) error {
+		srcAddr, err := net.ResolveUDPAddr("udp", src)
+		if err != nil {
+			return err
+		}
+		c.listenerFactory = func() (*net.UDPConn, error) {
+			return net.ListenUDP("udp", srcAddr)
+		}
+		return nil
+	}
 }
 
 func WithConn(conn *net.UDPConn) Option {
-    return func (c *config) error {
-        c.listenerFactory = func() (*net.UDPConn, error) {
-            return conn, nil
-        }
-        return nil
-    }
+	return func(c *config) error {
+		c.listenerFactory = func() (*net.UDPConn, error) {
+			return conn, nil
+		}
+		return nil
+	}
 }
 
 func WithDestination(dest string) Option {
-    return func (c *config) error {
-        destAddr, err := net.ResolveUDPAddr("udp", dest)
-        if err != nil {
-            return err
-        }
-        c.router = staticRouter{UDPAddr: destAddr}
-        return nil
-    }
+	return func(c *config) error {
+		destAddr, err := net.ResolveUDPAddr("udp", dest)
+		if err != nil {
+			return err
+		}
+		c.router = staticRouter{UDPAddr: destAddr}
+		return nil
+	}
 }
 
 func WithRouter(router Router) Option {
-    return func (c *config) error {
-        c.router = router
-        return nil
-    }
+	return func(c *config) error {
+		c.router = router
+		return nil
+	}
 }
 
-func WithRouterFunc(router func (*net.UDPAddr) *net.UDPAddr) Option {
-    return WithRouter(funcRouter(router))
+func WithRouterFunc(router func(*net.UDPAddr) *net.UDPAddr) Option {
+	return WithRouter(funcRouter(router))
 }
 
 func WithTimeout(timeout time.Duration) Option {
-    return func (c *config) error {
-        c.timeout = timeout
-        return nil
-    }
+	return func(c *config) error {
+		c.timeout = timeout
+		return nil
+	}
 }
 
 func WithBufferSize(size int) Option {
-    return func (c *config) error {
-        c.bufferSize = size
-        return nil
-    }
+	return func(c *config) error {
+		c.bufferSize = size
+		return nil
+	}
 }
 
 // DefaultTimeout is the default timeout period of inactivity for convenience
@@ -128,19 +128,19 @@ const DefaultTimeout = time.Minute * 5
 // timeout to "disconnect" clients after the timeout period of inactivity. It
 // implements a reverse NAT and thus supports multiple seperate users. Forward
 // is also asynchronous.
-func Forward(options... Option) (*Forwarder, error) {
-    config := &config{
-        timeout: DefaultTimeout,
-        bufferSize: 4096,
-    }
+func Forward(options ...Option) (*Forwarder, error) {
+	config := &config{
+		timeout:    DefaultTimeout,
+		bufferSize: 4096,
+	}
 
-    options = append([]Option{WithAddr(":")}, options...)
+	options = append([]Option{WithAddr(":")}, options...)
 
-    for _, opt := range options {
-        if err := opt(config); err != nil {
-            return nil, err
-        }
-    }
+	for _, opt := range options {
+		if err := opt(config); err != nil {
+			return nil, err
+		}
+	}
 
 	forwarder := new(Forwarder)
 	forwarder.connectCallback = func(addr string) {}
@@ -148,15 +148,15 @@ func Forward(options... Option) (*Forwarder, error) {
 	forwarder.connectionsMutex = new(sync.RWMutex)
 	forwarder.connections = make(map[string]*connection)
 	forwarder.timeout = config.timeout
-    forwarder.router = config.router
-    forwarder.bufferSize = config.bufferSize
+	forwarder.router = config.router
+	forwarder.bufferSize = config.bufferSize
 
-    var err error
+	var err error
 	forwarder.listenerConn, err = config.listenerFactory()
 	if err != nil {
 		return nil, err
 	}
-    forwarder.src, _ = forwarder.listenerConn.LocalAddr().(*net.UDPAddr)
+	forwarder.src, _ = forwarder.listenerConn.LocalAddr().(*net.UDPAddr)
 
 	go forwarder.janitor()
 	go forwarder.run()
@@ -218,13 +218,13 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 	if !found {
 		var udpConn *net.UDPConn
 		var err error
-        dst := f.router.Route(addr)
-        if dst == nil {
-            f.connectionsMutex.Lock()
-            delete(f.connections, addr.String())
-            f.connectionsMutex.Unlock()
-            return
-        }
+		dst := f.router.Route(addr)
+		if dst == nil {
+			f.connectionsMutex.Lock()
+			delete(f.connections, addr.String())
+			f.connectionsMutex.Unlock()
+			return
+		}
 		if dst.IP.To4()[0] == 127 {
 			// log.Println("using local listener")
 			laddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:")
@@ -341,6 +341,6 @@ func (f *Forwarder) Connected() []string {
 }
 
 func (f *Forwarder) LocalAddr() *net.UDPAddr {
-    addr, _ := f.listenerConn.LocalAddr().(*net.UDPAddr)
-    return addr
+	addr, _ := f.listenerConn.LocalAddr().(*net.UDPAddr)
+	return addr
 }
